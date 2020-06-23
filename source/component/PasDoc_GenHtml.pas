@@ -282,6 +282,7 @@ type
     function LineBreak: string; override;
 
     function URLLink(const URL: string): string; override;
+    function URLLink(const URL, LinkDisplay: string): string; override;
 
     procedure WriteExternalCore(const ExternalItem: TExternalItem;
       const Id: TTranslationID); override;
@@ -299,6 +300,8 @@ type
     function FormatBold(const Text: string): string; override;
     function FormatItalic(const Text: string): string; override;
 
+    function FormatWarning(const Text: string): string; override;
+    function FormatNote(const Text: string): string; override;
     function FormatPreformatted(const Text: string): string; override;
 
     function FormatImage(FileNames: TStringList): string; override;
@@ -989,9 +992,11 @@ end;
 function TGenericHTMLDocGenerator.MakeLink(
   const href, caption, CssClass: string): string;
 begin
-  Result := Format('<a %s href="%s">%s</a>',
-    [ifthen(CssClass = '', '', 'class="' + CssClass + '"'),
-     EscapeURL(href), caption]);
+  Result := Format('<a %shref="%s">%s</a>', [
+    IfThen(CssClass = '', '', 'class="' + CssClass + '" '),
+    EscapeURL(href),
+    Caption
+  ]);
 end;
 
 procedure TGenericHTMLDocGenerator.WriteLink(
@@ -2272,6 +2277,18 @@ begin
   Result := MakeLink(URL, ConvertString(URL), '');
 end;
 
+function TGenericHTMLDocGenerator.URLLink(const URL, LinkDisplay: string): string;
+var
+  Link: String;
+begin
+  Link := FixEmailaddressWithoutMailTo(URL);
+
+  if LinkDisplay <> '' then
+    Result := MakeLink(Link, ConvertString(LinkDisplay), '')
+  else
+    Result := MakeLink(Link, ConvertString(URL), '');
+end;
+
 procedure TGenericHTMLDocGenerator.WriteExternalCore(
   const ExternalItem: TExternalItem;
   const Id: TTranslationID);
@@ -2318,6 +2335,20 @@ end;
 function TGenericHTMLDocGenerator.FormatItalic(const Text: string): string;
 begin
   Result := '<em>' + Text + '</em>';
+end;
+
+function TGenericHTMLDocGenerator.FormatWarning(const Text: string): string;
+begin
+  Result := '<dl class="tag warning"><dt>' + FormatBold(FLanguage.Translation[trWarningTag]) + '</dt><dd>';
+  Result := Result + Text;
+  Result := Result + '</dd></dl>';
+end;
+
+function TGenericHTMLDocGenerator.FormatNote(const Text: string): string;
+begin
+  Result := '<dl class="tag note"><dt>' + FormatBold(FLanguage.Translation[trNoteTag]) + '</dt><dd>';
+  Result := Result + Text;
+  Result := Result + '</dd></dl>';
 end;
 
 function TGenericHTMLDocGenerator.FormatPreformatted(
@@ -2499,15 +2530,20 @@ function THTMLDocGenerator.MakeBodyBegin: string;
 
   function MakeNavigation: string;
 
-    function LocalMakeLink(const Filename, Caption: string): string; overload;
+    function LocalMakeLink(const Filename, Caption: string): string;
     begin
-      Result := '<p><a href="' + EscapeURL(Filename) + '" class="navigation">' +
-        ConvertString(Caption) + '</a></p>';
+      Result := '<a href="' + EscapeURL(Filename) + '" class="navigation">' +
+        ConvertString(Caption) + '</a>';
     end;
 
-    function LocalMakeLink(const Filename: string; CaptionId: TTranslationID): string; overload;
+    function LocalMakeParagraphLink(const Filename, Caption: string): string; overload;
     begin
-      Result := LocalMakeLink(Filename, FLanguage.Translation[CaptionId]);
+      Result := '<p>' + LocalMakeLink(Filename, Caption) + '</p>';
+    end;
+
+    function LocalMakeParagraphLink(const Filename: string; CaptionId: TTranslationID): string; overload;
+    begin
+      Result := LocalMakeParagraphLink(Filename, FLanguage.Translation[CaptionId]);
     end;
 
   var
@@ -2517,27 +2553,29 @@ function THTMLDocGenerator.MakeBodyBegin: string;
     Result := '';
 
     if Title <> '' then
-      Result := Result + '<h2>' + ConvertString(Title) + '</h2>';
+    begin
+      Result := Result + '<h2>' + LocalMakeLink('index.html', Title) + '</h2>';
+    end;
 
     if Introduction <> nil then
     begin
       if Introduction.ShortTitle = '' then
-        Result := Result + LocalMakeLink(Introduction.OutputFileName, trIntroduction) else
-        Result := Result + LocalMakeLink(Introduction.OutputFileName, Introduction.ShortTitle);
+        Result := Result + LocalMakeParagraphLink(Introduction.OutputFileName, trIntroduction) else
+        Result := Result + LocalMakeParagraphLink(Introduction.OutputFileName, Introduction.ShortTitle);
     end;
 
     for Overview := LowCreatedOverviewFile to HighCreatedOverviewFile do
-      Result := Result + LocalMakeLink(
+      Result := Result + LocalMakeParagraphLink(
         OverviewFilesInfo[Overview].BaseFileName + GetFileExtension,
         OverviewFilesInfo[Overview].TranslationId);
 
     if LinkGraphVizUses <> '' then
-      Result := Result + LocalMakeLink(
+      Result := Result + LocalMakeParagraphLink(
         OverviewFilesInfo[ofGraphVizUses].BaseFileName + '.' + LinkGraphVizUses,
         OverviewFilesInfo[ofGraphVizUses].TranslationId);
 
     if LinkGraphVizClasses <> '' then
-      Result := Result + LocalMakeLink(
+      Result := Result + LocalMakeParagraphLink(
         OverviewFilesInfo[ofGraphVizClasses].BaseFileName + '.' + LinkGraphVizClasses,
         OverviewFilesInfo[ofGraphVizClasses].TranslationId);
 
@@ -2546,16 +2584,16 @@ function THTMLDocGenerator.MakeBodyBegin: string;
       for i := 0 to AdditionalFiles.Count - 1 do
       begin
         if AdditionalFiles.Get(i).ShortTitle = '' then
-          Result := Result + LocalMakeLink(AdditionalFiles.Get(i).OutputFileName, trAdditionalFile) else
-          Result := Result + LocalMakeLink(AdditionalFiles.Get(i).OutputFileName, AdditionalFiles.Get(i).ShortTitle);
+          Result := Result + LocalMakeParagraphLink(AdditionalFiles.Get(i).OutputFileName, trAdditionalFile) else
+          Result := Result + LocalMakeParagraphLink(AdditionalFiles.Get(i).OutputFileName, AdditionalFiles.Get(i).ShortTitle);
       end;
     end;
 
     if Conclusion <> nil then
     begin
       if Conclusion.ShortTitle = '' then
-        Result := Result + LocalMakeLink(Conclusion.OutputFileName, trConclusion) else
-        Result := Result + LocalMakeLink(Conclusion.OutputFileName, Conclusion.ShortTitle);
+        Result := Result + LocalMakeParagraphLink(Conclusion.OutputFileName, trConclusion) else
+        Result := Result + LocalMakeParagraphLink(Conclusion.OutputFileName, Conclusion.ShortTitle);
     end;
 
     if UseTipueSearch then

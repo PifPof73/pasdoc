@@ -204,6 +204,9 @@ type
     trDescriptions, //<section heading for detailed descriptions
     trName,
     trValues,
+//tags with inbuilt heading
+    trWarningTag,
+    trNoteTag,
 
   //empty tables
     trNone,
@@ -339,6 +342,15 @@ implementation
 uses
   SysUtils;
 {$ENDIF}
+
+{ TODO: This whole approach to translations should be simplified to
+
+  - just use UTF-8 for everything
+  - use GetText PO files to manage translations
+
+  This approach is standard (also for translators), and proved in Lazarus,
+  Castle Game Engine and other projects.
+  See https://github.com/pasdoc/pasdoc/issues/87 }
 
 const
   { Translation markers.

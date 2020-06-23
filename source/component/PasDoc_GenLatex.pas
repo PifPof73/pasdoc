@@ -160,6 +160,10 @@ type
     { Writes dates Created and LastMod at heading level HL to output
       (if at least one the two has a value assigned). }
     procedure WriteDates(const HL: integer; const Created, LastMod: string);
+
+    { Writes include and style definiton for @warning and @note tag }
+    procedure WriteWarningAndNoteTagDefinition;
+
     procedure SetLatexHead(const Value: TStrings);
     function FormatHeading(HL: integer; const s: string): string;
   protected
@@ -194,6 +198,7 @@ type
     function LineBreak: string; override;
 
     function URLLink(const URL: string): string; override;
+    function URLLink(const URL, LinkDisplay: string): string; override;
 
     procedure WriteExternalCore(const ExternalItem: TExternalItem;
       const Id: TTranslationID); override;
@@ -225,6 +230,8 @@ Latex DocGenerators.}
     function FormatBold(const Text: string): string; override;
     function FormatItalic(const Text: string): string; override;
 
+    function FormatWarning(const Text: string): string; override;
+    function FormatNote(const Text: string): string; override;
     function FormatPreformatted(const Text: string): string; override;
 
     function FormatImage(FileNames: TStringList): string; override;
@@ -616,6 +623,36 @@ begin
     WriteDirectLine(LastMod);
     WriteEndOfParagraph;
   end;
+end;
+
+procedure TTexDocGenerator.WriteWarningAndNoteTagDefinition;
+  procedure WriteBoxDefinition(const BoxName, Heading, VertLineColor: String);
+  begin
+    WriteDirect('\newtcolorbox{' + BoxName + '}{',true);
+    WriteDirect(' breakable,',true);
+    WriteDirect(' enhanced jigsaw,',true);
+    WriteDirect(' top=0pt,',true);
+    WriteDirect(' bottom=0pt,',true);
+    WriteDirect(' titlerule=0pt,',true);
+    WriteDirect(' bottomtitle=0pt,',true);
+    WriteDirect(' rightrule=0pt,',true);
+    WriteDirect(' toprule=0pt,',true);
+    WriteDirect(' bottomrule=0pt,',true);
+    WriteDirect(' colback=white,',true);
+    WriteDirect(' arc=0pt,',true);
+    WriteDirect(' outer arc=0pt,',true);
+    WriteDirect(' title style={white},',true);
+    WriteDirect(' fonttitle=\color{black}\bfseries,',true);
+    WriteDirect(' left=8pt,',true);
+    WriteDirect(' colframe=' + VertLineColor + ',',true);
+    WriteDirect(' title={' + Heading + ':},',true);
+    WriteDirect('}',true);
+  end;
+begin
+  WriteDirect('% definitons for warning and note tag',true);
+  WriteDirect('\usepackage[most]{tcolorbox}',true);
+  WriteBoxDefinition('tcbwarning', FLanguage.Translation[trWarningTag], 'red');
+  WriteBoxDefinition('tcbnote', FLanguage.Translation[trNoteTag], 'yellow');
 end;
 
 { ---------------------------------------------------------------------------- }
@@ -1277,6 +1314,10 @@ begin
   Title := ConvertString(Title);
   WritePDFDocInfo(Title);
   WriteDirect('',true);
+
+  WriteWarningAndNoteTagDefinition;
+
+  WriteDirect('',true);
   WriteDirect('\begin{document}',true);
   if not Flatex2rtf then
   begin
@@ -1525,6 +1566,31 @@ begin
     Result := '\href{' + EscapeURL(URL) + '}{' + ConvertString(URL) + '}';
 end;
 
+function TTexDocGenerator.URLLink(const URL, LinkDisplay: string): string;
+var
+  Link: String;
+begin
+  Link := FixEmailaddressWithoutMailTo(URL);
+
+  if LinkDisplay <> '' then
+  begin
+    if Latex2Rtf then
+      (* latex2rtf doesn't understand \href (well, actually it doesn't
+        understand \usepackage{hyperref} at all) *)
+      Result := ConvertString(Link + ' (' + LinkDisplay + ')') else
+      Result := '\href{' + EscapeURL(Link) + '}{' + ConvertString(LinkDisplay) + '}';
+  end
+  else
+  begin
+    if Latex2Rtf then
+    (* latex2rtf doesn't understand \href (well, actually it doesn't
+       understand \usepackage{hyperref} at all) *)
+    Result := ConvertString(Link) else
+    Result := '\href{' + EscapeURL(Link) + '}{' + ConvertString(URL) + '}';
+  end;
+
+end;
+
 procedure TTexDocGenerator.WriteExternalCore(
   const ExternalItem: TExternalItem;
   const Id: TTranslationID);
@@ -1609,6 +1675,16 @@ end;
 function TTexDocGenerator.FormatItalic(const Text: string): string;
 begin
   Result := '\textit{' + Text + '}';
+end;
+
+function TTexDocGenerator.FormatWarning(const Text: string): string;
+begin
+  Result := '\begin{tcbwarning}' + Text + '\end{tcbwarning}';
+end;
+
+function TTexDocGenerator.FormatNote(const Text: string): string;
+begin
+  Result := '\begin{tcbnote}' + Text + '\end{tcbnote}'
 end;
 
 function TTexDocGenerator.FormatPreformatted(const Text: string): string;

@@ -264,6 +264,12 @@ type
       default is false }
     FExcludeGenerator: boolean;
     FIncludeCreationTime: boolean;
+
+    { If false, the first character of literal tags like 'false' and 'nil' will be upcased.
+      Otherwise all characters will be lowercased.
+      default is false }
+    FUseLowercaseKeywords: boolean;
+
     { the output stream that is currently written to; depending on the
       output format, more than one output stream will be necessary to
       store all documentation }
@@ -313,6 +319,9 @@ type
     procedure HandleLinkTag(ThisTag: TTag; var ThisTagData: TObject;
       EnclosingTag: TTag; var EnclosingTagData: TObject;
       const TagParameter: string; var ReplaceStr: string);
+    procedure HandleUrlTag(ThisTag: TTag; var ThisTagData: TObject;
+      EnclosingTag: TTag; var EnclosingTagData: TObject;
+      const TagParameter: string; var ReplaceStr: string);
     procedure HandleLongCodeTag(ThisTag: TTag; var ThisTagData: TObject;
       EnclosingTag: TTag; var EnclosingTagData: TObject;
       const TagParameter: string; var ReplaceStr: string);
@@ -335,6 +344,12 @@ type
       EnclosingTag: TTag; var EnclosingTagData: TObject;
       const TagParameter: string; var ReplaceStr: string);
     procedure HandleCodeTag(ThisTag: TTag; var ThisTagData: TObject;
+      EnclosingTag: TTag; var EnclosingTagData: TObject;
+      const TagParameter: string; var ReplaceStr: string);
+    procedure HandleWarningTag(ThisTag: TTag; var ThisTagData: TObject;
+      EnclosingTag: TTag; var EnclosingTagData: TObject;
+      const TagParameter: string; var ReplaceStr: string);
+    procedure HandleNoteTag(ThisTag: TTag; var ThisTagData: TObject;
       EnclosingTag: TTag; var EnclosingTagData: TObject;
       const TagParameter: string; var ReplaceStr: string);
     procedure HandleLiteralTag(ThisTag: TTag; var ThisTagData: TObject;
@@ -524,6 +539,13 @@ type
     { Searches for an email address in String S. Searches for first appearance
       of the @@ character}
     function ExtractEmailAddress(s: string; out S1, S2, EmailAddress: string): Boolean;
+
+    { Searches for an email address in PossibleEmailAddress and appends mailto:
+      if it's an email address and mailto: wasn't provided.
+      Otherwise it simply returns the input.
+
+      Needed to link email addresses properly which doesn't start with mailto: }
+    function FixEmailaddressWithoutMailTo(const PossibleEmailAddress: String): String;
 
     { Searches for a web address in String S. It must either contain a http:// or
       start with www. }
@@ -752,7 +774,13 @@ type
       Default implementation in this class simply returns ConvertString(URL).
       This is good if your documentation format does not support
       anything like URL links. }
-    function URLLink(const URL: string): string; virtual;
+    function URLLink(const URL: string): string; overload; virtual;
+
+    { This returns the Text which will be shown for an URL tag.
+
+      URL is a link to a website or e-mail address.
+      LinkDisplay is an optional parameter which will be used as the display name of the URL. }
+    function URLLink(const URL, LinkDisplay: string): string; overload; virtual;
 
     {@name is used to write the introduction and conclusion
      of the project.}
@@ -805,6 +833,12 @@ type
     { This returns Text formatted using italic font.
       Analogous to @link(FormatBold). }
     function FormatItalic(const Text: string): string; virtual;
+
+    { This returns Text using bold font by calling FormatBold(Text). }
+    function FormatWarning(const Text: string): string; virtual;
+
+    { This returns Text using italic font by calling FormatItalic(Text). }
+    function FormatNote(const Text: string): string; virtual;
 
     { This returns Text preserving spaces and line breaks.
       Note that Text passed here is not yet converted with ConvertString.
@@ -925,6 +959,10 @@ type
     property IncludeCreationTime: Boolean
       read FIncludeCreationTime write FIncludeCreationTime default false;
 
+    { Setting to define how literal tag keywords should appear in documentaion. }
+    property UseLowercaseKeywords: Boolean
+      read FUseLowercaseKeywords write FUseLowercaseKeywords default false;
+
     { Title of the documentation, supplied by user. May be empty.
       See @link(TPasDoc.Title). }
     property Title: string read FTitle write FTitle;
@@ -985,6 +1023,7 @@ implementation
 
 uses
   SysUtils,
+  StrUtils,
   PasDoc_Utils,
   PasDoc_Tokenizer;
 
@@ -1289,8 +1328,11 @@ procedure TDocGenerator.HandleLiteralTag(
   EnclosingTag: TTag; var EnclosingTagData: TObject;
   const TagParameter: string; var ReplaceStr: string);
 begin
-  ReplaceStr := CodeString(UpCase(ThisTag.Name[1]) +
-    Copy(ThisTag.Name, 2, MaxInt));
+  if UseLowercaseKeywords then
+    ReplaceStr := CodeString(ThisTag.Name)
+  else
+    ReplaceStr := CodeString(UpCase(ThisTag.Name[1]) +
+      Copy(ThisTag.Name, 2, MaxInt));
 end;
 
 procedure TDocGenerator.HandleInheritedClassTag(
@@ -1384,12 +1426,38 @@ begin
   ReplaceStr := SearchLink(LinkTarget, FCurrentItem, LinkDisplay, true);
 end;
 
+procedure TDocGenerator.HandleUrlTag(
+  ThisTag: TTag; var ThisTagData: TObject;
+  EnclosingTag: TTag; var EnclosingTagData: TObject;
+  const TagParameter: string; var ReplaceStr: string);
+var LinkTarget, LinkDisplay: string;
+begin
+  ExtractFirstWord(TagParameter, LinkTarget, LinkDisplay);
+  ReplaceStr := URLLink(LinkTarget, LinkDisplay);
+end;
+
 procedure TDocGenerator.HandleCodeTag(
   ThisTag: TTag; var ThisTagData: TObject;
   EnclosingTag: TTag; var EnclosingTagData: TObject;
   const TagParameter: string; var ReplaceStr: string);
 begin
   ReplaceStr := CodeString(TagParameter);
+end;
+
+procedure TDocGenerator.HandleWarningTag(
+  ThisTag: TTag; var ThisTagData: TObject;
+  EnclosingTag: TTag; var EnclosingTagData: TObject;
+  const TagParameter: string; var ReplaceStr: string);
+begin
+  ReplaceStr := FormatWarning(TagParameter);
+end;
+
+procedure TDocGenerator.HandleNoteTag(
+  ThisTag: TTag; var ThisTagData: TObject;
+  EnclosingTag: TTag; var EnclosingTagData: TObject;
+  const TagParameter: string; var ReplaceStr: string);
+begin
+  ReplaceStr := FormatNote(TagParameter);
 end;
 
 procedure TDocGenerator.HandleBrTag(
@@ -1889,6 +1957,11 @@ procedure TDocGenerator.ExpandDescriptions;
       TTag.Create(TagManager, 'link',
         nil, {$IFDEF FPC}@{$ENDIF} HandleLinkTag,
         [toParameterRequired]);
+
+      TTag.Create(TagManager, 'url',
+        nil, {$IFDEF FPC}@{$ENDIF} HandleUrlTag,
+        [toParameterRequired]);
+
       TTag.Create(TagManager, 'preformatted',
         nil, {$IFDEF FPC}@{$ENDIF} HandlePreformattedTag,
         [toParameterRequired]);
@@ -1915,6 +1988,15 @@ procedure TDocGenerator.ExpandDescriptions;
          toAllowNormalTextInside]);
       TTag.Create(TagManager, 'italic',
         nil, {$IFDEF FPC}@{$ENDIF} HandleItalicTag,
+        [toParameterRequired, toRecursiveTags, toAllowOtherTagsInsideByDefault,
+         toAllowNormalTextInside]);
+
+      TTag.Create(TagManager, 'warning',
+        nil, {$IFDEF FPC}@{$ENDIF} HandleWarningTag,
+        [toParameterRequired, toRecursiveTags, toAllowOtherTagsInsideByDefault,
+         toAllowNormalTextInside]);
+      TTag.Create(TagManager, 'note',
+        nil, {$IFDEF FPC}@{$ENDIF} HandleNoteTag,
         [toParameterRequired, toRecursiveTags, toAllowOtherTagsInsideByDefault,
          toAllowNormalTextInside]);
 
@@ -2162,6 +2244,21 @@ begin
   S2 := '';
   if (i <= Length(s)) then S2 := System.Copy(s, i, Length(s) - i + 1);
   Result := True;
+end;
+
+function TDocGenerator.FixEmailaddressWithoutMailTo(const PossibleEmailAddress: String): String;
+const
+  EMailAddressPrefix = 'mailto:';
+var
+  a, b, Email: String;
+begin
+  if ExtractEmailAddress(PossibleEmailAddress, a, b, Email) then
+  begin
+    if not AnsiStartsText(EMailAddressPrefix, Email) then
+      Result := EMailAddressPrefix + Email;
+  end
+  else
+    Result := PossibleEmailAddress;
 end;
 
 function TDocGenerator.ExtractWebAddress(s: string; out S1, S2,
@@ -2664,6 +2761,7 @@ begin
   FClassHierarchy := nil;
   FExcludeGenerator := false;
   FIncludeCreationTime := false;
+  FUseLowercaseKeywords := false;
   FLanguage := TPasDocLanguages.Create;
   FAbbreviations := TStringList.Create;
   FAbbreviations.Duplicates := dupIgnore;
@@ -3588,6 +3686,18 @@ begin
   Result := ConvertString(URL);
 end;
 
+function TDocGenerator.URLLink(const URL, LinkDisplay: string): string;
+var
+  Link: String;
+begin
+  Link := FixEmailaddressWithoutMailTo(URL);
+
+  if LinkDisplay <> '' then
+    Result := Format('%s (%s)', [ConvertString(Link), ConvertString(LinkDisplay)])
+  else
+    Result := URLLink(Link);
+end;
+
 function TDocGenerator.FormatBold(const Text: string): string;
 begin
   Result := Text;
@@ -3596,6 +3706,16 @@ end;
 function TDocGenerator.FormatItalic(const Text: string): string;
 begin
   Result := Text;
+end;
+
+function TDocGenerator.FormatWarning(const Text: string): string;
+begin
+  Result := FormatBold(Text);
+end;
+
+function TDocGenerator.FormatNote(const Text: string): string;
+begin
+  Result := FormatItalic(Text);
 end;
 
 function TDocGenerator.FormatPreformatted(const Text: string): string;

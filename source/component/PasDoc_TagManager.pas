@@ -529,6 +529,9 @@ type
 
 const
   MarkDownEscapeChar = '\';
+
+  // Defines for markdown blocks
+  // Markdown blocks are parts of text enclosed in two special fragments, identical or not.
   // Markdown blocks are rendered only when:
   //   - Opening tag is preceded by ASCII whitespace or ASCII punctuation
   //   - Closing tag is followed by ASCII whitespace or ASCII punctuation
@@ -557,6 +560,16 @@ const
   // All first chars of MarkdownBlocks[x].Open must be here. This could be automated
   // but it's not so complicated to keep this set actual
   MarkdownBlockStartChars = ['`', '*', '_'];
+
+  // Defines for markdown URLs
+  // Format is [Description](http://...)
+  MarkdownURLDescrOpen = '[';
+  MarkdownURLDescrClose = ']';
+  MarkdownURLOpen = '(';
+  MarkdownURLClose = ')';
+  PasDocURLTag = 'url';
+
+  // Defines for markdown lists
   MarkdownUListMarkers = ['-', '*'];
   MarkdownOListMarkers = ['0'..'9'];
   // Set of chars markdown lists could start with. To speedup checking
@@ -632,6 +645,107 @@ begin
   end;
 end;
 
+{ This checks whether we are looking (i.e. Description[Offset]
+  starts with) at some markdown special char, considering escaping }
+function IsMarkdownSpecialChar(const Description: string; Offset: Integer;
+  const Chars: TCharSet): boolean;
+begin
+  Result := False;
+  if not SCharIs(Description, Offset, Chars) then Exit;
+  if (Offset > 1) and SCharIs(Description, Offset - 1, MarkDownEscapeChar) then Exit; // skip escaped chars
+  Result := True;
+end;
+
+{ This searches for markdown special sign, considering escaping.
+  Search starts from position Offset.
+  If found, then it also sets OffsetEnd to position of found sign.}
+function FindMarkdownSpecialSign(const Description: string; Offset: Integer;
+  const Sign: string; out OffsetEnd: Integer): boolean;
+
+  // Check if special sign in Description at Offset is escaped
+  // (has strictly single `\` before)
+  function IsEscaped(const Description: string; Offset: Integer): Boolean;
+  var EscapesCount: Integer;
+  begin
+    case Offset of
+      1: Result := False; // 1st char
+      2: Result := Description[Offset - 1] = MarkDownEscapeChar; // 2nd char
+      else // 3rd char and further - check for escaped escape
+      begin
+        // Count consecutive escape chars. Each two mean '\' char
+        EscapesCount := 0;
+        while Offset > 1 do
+        begin
+          if Description[Offset - 1] = MarkDownEscapeChar then
+            Inc(EscapesCount)
+          else
+            Break;
+          Dec(Offset);
+        end;
+        Result := Odd(EscapesCount);
+      end;
+    end;
+  end;
+
+var CurrOffset, SignPos: Integer;
+begin
+  Result := False;
+  CurrOffset := Offset;
+
+  repeat
+    SignPos := PosEx(Sign, Description, CurrOffset);
+    if SignPos = 0 then Exit;
+    // skip escaped chars
+    if IsEscaped(Description, SignPos) then
+    begin
+      CurrOffset := SignPos + 1;
+      Continue;
+    end;
+    Result := True;
+    OffsetEnd := SignPos;
+    Break;
+  until False;
+end;
+
+{ This removes escaped special chars from Markdown string.
+  Algo is extremely primitive: just remove one "\" before any char.
+  This means no "smart" non-escape detection (like `AC\DC`) so escape char
+  must be escaped always (`AC\\DC`).
+  NOTE: currently this function is intended to run only for URL description. }
+function MarkdownUnescape(const Description: string): string;
+var
+  SrcIdx, DestIdx: Integer;
+begin
+  // First check if we got any escape
+  if PosEx(MarkDownEscapeChar, Description) = 0 then
+  begin
+    Result := Description;
+    Exit;
+  end;
+
+  // Just copy src chars to dest one by one. Dumb and non-optimal but very simple.
+  // Loop until the char before the last one (!) to simplify code
+  SetLength(Result, Length(Description));
+  DestIdx := 1;
+  SrcIdx := 1;
+  while SrcIdx < Length(Description) do
+  begin
+    if Description[SrcIdx] = MarkDownEscapeChar then
+      Inc(SrcIdx);
+    Result[DestIdx] := Description[SrcIdx];
+    Inc(DestIdx);
+    Inc(SrcIdx);
+  end;
+  // Copy last char if not processed yet
+  if SrcIdx = Length(Description) then
+  begin
+    Result[DestIdx] := Description[SrcIdx];
+    Inc(DestIdx);
+  end;
+
+  SetLength(Result, DestIdx - 1);
+end;
+
 {
   This checks if a known Markdown block starts at Description[Offset].
   If yes, it returns true and sets
@@ -640,7 +754,7 @@ end;
   -- OffsetEnd to the index of *next* character in Description right
      after this block
 }
-function CheckMarkdown(const Description: string; Offset: Integer;
+function CheckMarkdownBlock(const Description: string; Offset: Integer;
   out PasDocTagName: string; out Parameters: string; out OffsetEnd: Integer): Boolean;
 var
   CurrOffset, BlockEndPos, MdBlockIdx: Integer;
@@ -648,8 +762,7 @@ begin
   Result := False;
 
   // Fast check if we have markdown block opening
-  if not SCharIs(Description, Offset, MarkdownBlockStartChars) then Exit;
-  if (Offset > 1) and SCharIs(Description, Offset - 1, MarkDownEscapeChar) then Exit; // skip escaped chars
+  if not IsMarkdownSpecialChar(Description, Offset, MarkdownBlockStartChars) then Exit;
   if (Offset > 1) and not SCharIs(Description, Offset - 1, MarkdownBlockBoundaries) then Exit; // opening block must be preceded by a block delimiter char
 
   MdBlockIdx := -1;
@@ -670,14 +783,8 @@ begin
 
   // now search for markdown block end
   repeat
-    BlockEndPos := PosEx(MarkdownBlocks[MdBlockIdx].Close, Description, CurrOffset);
-    if BlockEndPos = 0 then Exit; { exit with false }
-    // skip escaped chars
-    if SCharIs(Description, BlockEndPos - 1, MarkDownEscapeChar) then
-    begin
-      CurrOffset := BlockEndPos + 1;
-      Continue;
-    end;
+    if not FindMarkdownSpecialSign(Description, CurrOffset, MarkdownBlocks[MdBlockIdx].Close, BlockEndPos) then
+      Exit; { exit with false }
     // block must close with a block delimiter char or end of string
     if BlockEndPos + Length(MarkdownBlocks[MdBlockIdx].Close) - 1 = Length(Description) then
       Break;
@@ -692,6 +799,75 @@ begin
   PasDocTagName := MarkdownBlocks[MdBlockIdx].PasDocTag;
   OffsetEnd := BlockEndPos + Length(MarkdownBlocks[MdBlockIdx].Close);
   Parameters := Copy(Description, Offset + Length(MarkdownBlocks[MdBlockIdx].Open), BlockEndPos - (Offset + Length(MarkdownBlocks[MdBlockIdx].Open)));
+
+  Result := True;
+end;
+
+{
+  This checks if Markdown URL starts at Description[Offset].
+  If yes, it returns true and sets
+  -- PasDocTagName to name of PasDoc tag corresponding to current Markdown block
+  -- Parameters to contents of this block
+  -- OffsetEnd to the index of *next* character in Description right
+     after this block
+}
+function CheckMarkdownURL(const Description: string; Offset: Integer;
+  out PasDocTagName: string; out Parameters: string; out OffsetEnd: Integer): Boolean;
+var
+  CurrOffset, BlockEndPos, Level: Integer;
+  URLDescr, URL: string;
+  Found: Boolean;
+const
+  DescrEnd = MarkdownURLDescrClose + MarkdownURLOpen;
+begin
+  Result := False;
+
+  // Fast check if we have markdown URL descr opening
+  if not IsMarkdownSpecialChar(Description, Offset, [MarkdownURLDescrOpen]) then Exit;
+
+  // Scan for contents
+  CurrOffset := Offset;
+  repeat
+    // Scan for end of description and start of URL
+    if not FindMarkdownSpecialSign(Description, CurrOffset, DescrEnd, BlockEndPos) then
+      Exit; { exit with false }
+    URLDescr := Copy(Description, CurrOffset + 1, BlockEndPos - Offset - 1);
+    CurrOffset := BlockEndPos + Length(DescrEnd);
+    // Scan for end of URL i.e. closing bracket. If opening bracket is encountered, skip to next
+    // closing bracket as it's part of an URL
+    Level := 0; Found := False; BlockEndPos := CurrOffset;
+    while BlockEndPos < Length(Description) do
+      case Description[BlockEndPos] of
+        MarkdownURLOpen:
+          begin
+            Inc(Level);
+            Inc(BlockEndPos);
+            Continue;
+          end;
+        MarkdownURLClose:
+          if Level = 0 then
+          begin
+            Found := True;
+            Break;
+          end
+          else
+          begin
+            Dec(Level);
+            Inc(BlockEndPos);
+            Continue;
+          end;
+        else
+          Inc(BlockEndPos);
+      end;
+    if not Found then
+      Exit; { exit with false }
+    URL := Copy(Description, CurrOffset, BlockEndPos - CurrOffset);
+    Break;
+  until False;
+
+  PasDocTagName := PasDocURLTag;
+  OffsetEnd := BlockEndPos + 1;
+  Parameters := URL + ' ' + MarkdownUnescape(URLDescr);
 
   Result := True;
 end;
@@ -771,7 +947,6 @@ function CheckMarkdownListItem(const Description: string; Offset: Integer;
   out LastItemInList: boolean): boolean;
 var
   BDummy, WasDoubleNL: boolean;
-  SDummy: string;
   StrLen, NewOffsetEnd, IndentLen, IndentWithMarkerLen, OtherIndentLen: Integer;
 begin
   Result := CheckMarkdownListItemStart(Description, Offset, BDummy, OffsetEnd, IndentLen);
@@ -1186,9 +1361,12 @@ var
     // otherwise check for whole list
     else
       Result := CheckMarkdownList(Description, FOffset, TagName, Parameters, OffsetEnd);
+    // Check for markdown URL
+    if not Result then
+      Result := CheckMarkdownURL(Description, FOffset, TagName, Parameters, OffsetEnd);
     // Check for simple markdown block
     if not Result then
-      Result := CheckMarkdown(Description, FOffset, TagName, Parameters, OffsetEnd);
+      Result := CheckMarkdownBlock(Description, FOffset, TagName, Parameters, OffsetEnd);
 
     if not Result then Exit;
 

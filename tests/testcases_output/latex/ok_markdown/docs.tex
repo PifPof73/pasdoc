@@ -34,6 +34,47 @@
 \fi
 
 
+% definitons for warning and note tag
+\usepackage[most]{tcolorbox}
+\newtcolorbox{tcbwarning}{
+ breakable,
+ enhanced jigsaw,
+ top=0pt,
+ bottom=0pt,
+ titlerule=0pt,
+ bottomtitle=0pt,
+ rightrule=0pt,
+ toprule=0pt,
+ bottomrule=0pt,
+ colback=white,
+ arc=0pt,
+ outer arc=0pt,
+ title style={white},
+ fonttitle=\color{black}\bfseries,
+ left=8pt,
+ colframe=red,
+ title={Warning:},
+}
+\newtcolorbox{tcbnote}{
+ breakable,
+ enhanced jigsaw,
+ top=0pt,
+ bottom=0pt,
+ titlerule=0pt,
+ bottomtitle=0pt,
+ rightrule=0pt,
+ toprule=0pt,
+ bottomrule=0pt,
+ colback=white,
+ arc=0pt,
+ outer arc=0pt,
+ title style={white},
+ fonttitle=\color{black}\bfseries,
+ left=8pt,
+ colframe=yellow,
+ title={Note:},
+}
+
 \begin{document}
 \label{toc}\tableofcontents
 \newpage
@@ -157,4 +198,27 @@ Some Pascal code:
 ~~}\textbf{with}\texttt{\\\nopagebreak[3]
 ~~syntax~highlight\\
 }
+
+Correct URLs:
+
+\href{http://example}{Some one-line descr}
+
+\href{http://example}{Some multi-line
+   descr}
+
+\href{http://example}{Escaped [] descr}
+
+\href{http://example}{{\textbackslash}}
+
+\href{http://example}{a{\textbackslash}}
+
+\href{http://example/(foo)}{Bracket URL}
+
+Incorrect URLs:
+
+(\href{http://example}{http://example})
+
+[Some descr] (\href{http://example}{http://example})
+
+[Some descr](\href{http://example}{http://example}
 \end{document}
